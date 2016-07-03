@@ -20,4 +20,7 @@ class TestParse(unittest.TestCase):
     callee = None # expression.GetSymbolExpression("print")
     e = None # expression.CallExpression(callee, [one])
     s = statement.ExpressionStatement(e)
-    self.assertEqual(Parser(Scanner(iter("print(1);"))).parse())
+    self.assertEqual(Parser(Scanner(iter("print(1);"))).parse(), s)
+
+    # test assignment associativity
+    self.assertEqual(Parser(Scanner(iter("a = b = 1;"))).parse(), None)

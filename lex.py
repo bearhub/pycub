@@ -263,6 +263,11 @@ class Scanner:
       if char is None:
         return integer_token(0)
 
+      # TODO: maybe_dot support with floating point literals
+      if char == u'.':
+        reader.push(u'.')
+        return integer_token(0)
+
       if char in u".eE":
         raise NotImplementedError("floating point literals are not implemented")
 

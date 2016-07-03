@@ -1,5 +1,7 @@
 import math
+import ctypes
 import pycub.types as types
+import pycub.expression as expression
 
 L_ADD                = 0
 L_ADD_ASSIGN         = 1
@@ -217,6 +219,9 @@ class BoolToken(LiteralToken):
     return super(BoolToken, self).__eq__(other) and \
       isinstance(other, BoolToken) and self.value == other.value
 
+  def to_expression(self):
+    return expression.LiteralNode(types.T_BOOL, self.value)
+
 class IntToken(LiteralToken):
   def __init__(self, line, offset, value):
     bits = count_bits(value)
@@ -234,6 +239,9 @@ class IntToken(LiteralToken):
     return super(IntToken, self).__eq__(other) and \
       isinstance(other, IntToken) and self.value == other.value
 
+  def to_expression(self):
+    return expression.LiteralNode(self.literal_type, self.value)
+
 class StrToken(LiteralToken):
   def __init__(self, line, offset, string):
     super(StrToken, self).__init__(line, offset, types.T_STRING)
@@ -245,3 +253,6 @@ class StrToken(LiteralToken):
   def __eq__(self, other):
     return super(StrToken, self).__eq__(other) and \
       isinstance(other, StrToken) and self.value == other.value
+
+  def to_expression(self):
+    return expression.LiteralNode(types.T_STRING, self.value)

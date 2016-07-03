@@ -1,3 +1,5 @@
+import ctypes
+
 # TODO: map, list, class, function
 T_ARRAY    = 0
 T_BLOCKREF = 1
@@ -18,6 +20,12 @@ T_U16      = 15
 T_U32      = 16
 T_U64      = 17
 T_VOID     = 18
+
+signed = {T_S8, T_S16, T_S32, T_S64}
+unsigned = {T_U8, T_U16, T_U32, T_U64}
+floats = {T_F32, T_F64, T_F128}
+ints = signed | unsigned
+nums = ints | floats
 
 type_strings = {
   T_ARRAY:    'array',
@@ -41,5 +49,28 @@ type_strings = {
   T_VOID:     'void'
 }
 
+ctype = {
+  T_F32: ctypes.c_float,
+  T_F64: ctypes.c_double,
+  T_F128: ctypes.c_longdouble,
+  T_S8: ctypes.c_int8,
+  T_S16: ctypes.c_int16,
+  T_S32: ctypes.c_int32,
+  T_S64: ctypes.c_int64,
+  T_U8: ctypes.c_uint8,
+  T_U16: ctypes.c_uint16,
+  T_U32: ctypes.c_uint32,
+  T_U64: ctypes.c_uint64
+}
+
 def type_to_str(t):
   return type_strings[t]
+
+def is_int(t):
+  return t in ints
+
+def is_num(t):
+  return t in nums
+
+def is_str(t):
+  return t == T_STRING

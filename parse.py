@@ -1,6 +1,8 @@
 import pycub.tokens as tokens
 import pycub.statement as statement
 import pycub.disambiguate as disambiguate
+import pycub.ops as operator
+import pycub.expression as expression
 from pycub.reader import Reader
 
 # not sure how pythonic this is
@@ -16,7 +18,7 @@ token_map = {
   tokens.L_DO: 'parse_do_while',
   tokens.L_WHILE: 'parse_while',
   tokens.L_FOR: 'parse_for',
-  tokens.L_IDENTIFIER: 'parse_ambiguous_statement'
+  # tokens.L_IDENTIFIER: 'parse_ambiguous_statement'
 }
 
 expected_fail_map = {
@@ -72,8 +74,8 @@ class Parser:
   # internal api
   def _fail(self, expected):
     token = self.reader.peek()
-    if isinstance(expected, Token):
-      expected_error(self.scanner.reader, token, expected)
+    if isinstance(expected, int):
+      expected_error(self.scanner.reader, token, tokens.token_string(expected))
     elif hasattr(expected, '__call__') and hasattr(expected, '__name__'):
       expected_error(self.scanner.reader, token, expected_fail_map[expected.__name__])
     else:
@@ -174,6 +176,7 @@ class Parser:
   def parse_block(self, end_token=tokens.L_CLOSE_BRACE):
     result = statement.BlockStatement(None)
     tail = None
+
 
     # self.accept to handle None
     while not self.accept(end_token):
@@ -353,5 +356,145 @@ class Parser:
     else:
       expected_error(self.scanner.reader, self.reader.peek(), "statement")
 
-    self.expect(tokens.L_SEMICOLON)
+    self.reader.expect(tokens.L_SEMICOLON)
     return result
+
+
+  # expression parsing
+  def parse_expression(self):
+    return self.parse_expression_inner(self.parse_unary_expression(), 0)
+
+  def parse_expression_inner(self, left, min_precedence):
+    # TODO: handle None
+    reader = self.reader
+    next = reader.peek()
+
+    while next is not None:
+      if next.token_type not in operator.precedences:
+        raise Exception("parser error: unknown operator")
+      entry = operator.precedences[next.token_type]
+      if entry.precedence < min_precedence:
+        break
+      operation = next
+      operationEntry = entry
+      operationPrecedence = operationEntry.precedence
+      reader.pop()
+      right = self.parse_unary_expression()
+      next = reader.peek()
+
+      if next is None:
+        raise Exception("parser error: unexpected EOF")
+
+      while next is not None and next.token_type in operator.precedences:
+        entry = operator.precedences[next.token_type]
+        if entry.precedence < operationPrecedence or \
+          (entry.precedence == operationPrecedence and not entry.right_assoc):
+          break
+        right = self.parse_expression_inner(right, entry.precedence)
+        next = reader.peek()
+
+      left = new_binary_node(operation.token_type, left, right)
+
+    return left
+
+  # prefix: ++, --, -, !, ~
+  def parse_unary_expression(self):
+    reader = self.reader
+
+    prefix = reader.pop()
+
+    if prefix.token_type is None:
+      raise Exception("unexpected EOF")
+
+    if prefix.token_type in [tokens.L_INCREMENT, tokens.L_DECREMENT]:
+      return new_binary_node(operator.O_ADD_ASSIGN
+        if prefix.token_type == tokens.L_INCREMENT
+        else operation.O_SUB_ASSIGN, self.parse_unary_expression(), expression.IntNode(1))
+
+    if prefix.token_type == tokens.L_SUB:
+      return expression.NegateNode(self.parse_unary_expression())
+
+    if prefix.token_type in [tokens.L_NOT, tokens.L_BITWISE_NOT]:
+      return expression.NotNode(prefix.token_type != L_NOT, self.parse_unary_expression())
+
+    # no identifier-style tokens
+    # if prefix.token_type == tokens.L_NEW:
+    #   return self.parse_new()
+
+    reader.push(prefix)
+
+    return self.parse_local_expression()
+
+  # ., (), [], postfix: ++, --
+  def parse_local_expression(self):
+    reader = self.reader
+    left = self.parse_primary_expression()
+
+    while True:
+      suffix = reader.pop()
+
+      if suffix.token_type is None:
+        raise Expression("unexpected EOF")
+
+      if suffix.token_type == tokens.L_DOT:
+        left = expression.GetFieldNode(left, reader.expect(tokens.L_IDENTIFIER))
+      elif suffix.token_type == tokens.L_OPEN_PAREN:
+        left = expression.CallNode(left, self.parse_expression_list())
+      elif suffix.token_type == tokens.L_OPEN_BRACKET:
+        right = self.parse_expression()
+        reader.expect(tokens.L_CLOSE_BRACKET)
+        left = expression.GetIndexNode(left, right)
+      elif suffix.token_type == tokens.L_INCREMENT:
+        left = PostfixNode(operator.O_INCREMENT, left)
+      elif suffix.token_type == tokens.L_DECREMENT:
+        left = PostfixNode(operator.O_DECREMENT, left)
+      else:
+        reader.push(suffix)
+        return left
+
+  def parse_primary_expression(self):
+    reader = self.reader
+
+    # grouping
+    if reader.accept(tokens.L_OPEN_PAREN) is not None:
+      result = self.parse_expression()
+      reader.expect(tokens.L_CLOSE_PAREN)
+      return result
+
+    # literals
+    token = reader.accept(tokens.L_LITERAL)
+    if token is not None:
+      # TODO: handle 12.method() with token.maybe_dot:
+      # next = reader.peek()
+      # if token.maybe_dot is not None and next is not None and \
+      #   next.token_type == tokens.L_IDENTIFIER:
+      #   reader.push(token.maybe_dot)
+      #   token.maybe_dot = None
+      return token.to_expression()
+
+    if disambiguate.disambiguate_expression(self) == disambiguate.G_FUNCTION:
+      return expression.FunctionNode(self.parse_function(True))
+
+    token = reader.accept(tokens.L_IDENTIFIER)
+
+    if token is None:
+      raise Exception("expecting function or expression")
+
+    # TODO: identifiers instead of tokens
+    return expression.GetSymbolNode(token.value)
+
+  def parse_expression_list(self, end_token=tokens.L_CLOSE_PAREN):
+    reader = self.reader
+
+    if reader.accept(end_token) is not None:
+      return []
+
+    expressions = [self.parse_expression()]
+
+    while reader.accept(tokens.L_COMMA) is not None:
+      expressions.append(self.parse_expression())
+
+    reader.expect(end_token)
+
+    return expressions
+
